@@ -1,30 +1,70 @@
-from flask import Flask, request
-from Crypto.Cipher import AES
-import base64
+from flask import Flask, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-key = b'your-16-byte-key'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///bank.db'
+db = SQLAlchemy(app)
 
-def encrypt_message(message):
-    cipher = AES.new(key, AES.MODE_ECB)
-    return base64.b64encode(cipher.encrypt(message.ljust(16).encode()))
+# Database Models
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    balance = db.Column(db.Float, default=0.0)
 
-def decrypt_message(encrypted_message):
-    cipher = AES.new(key, AES.MODE_ECB)
-    return cipher.decrypt(base64.b64decode(encrypted_message)).strip().decode()
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    transaction_type = db.Column(db.String(50), nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
-@app.route('/send_to_client', methods=['GET'])
-def send_to_client():
-    message = "Hello Client!"
-    encrypted_message = encrypt_message(message)
-    return encrypted_message
+# Routes
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.json
+    hashed_password = generate_password_hash(data['password'], method='sha256')
+    user = User(username=data['username'], password_hash=hashed_password, name=data['name'])
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({"message": "User registered successfully!"})
 
-@app.route('/receive_from_client', methods=['POST'])
-def receive_from_client():
-    encrypted_message = request.data
-    decrypted_message = decrypt_message(encrypted_message)
-    print(f"Decrypted message from client: {decrypted_message}")
-    return "Message received"
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    user = User.query.filter_by(username=data['username']).first()
+    if user and check_password_hash(user.password_hash, data['password']):
+        return jsonify({"message": "Login successful!", "balance": user.balance})
+    return jsonify({"message": "Invalid username or password"}), 401
+
+@app.route('/deposit', methods=['POST'])
+def deposit():
+    data = request.json
+    user = User.query.filter_by(username=data['username']).first()
+    if user:
+        user.balance += data['amount']
+        transaction = Transaction(user_id=user.id, amount=data['amount'], transaction_type='deposit')
+        db.session.add(transaction)
+        db.session.commit()
+        return jsonify({"message": "Deposit successful!", "balance": user.balance})
+    return jsonify({"message": "User not found"}), 404
+
+@app.route('/withdraw', methods=['POST'])
+def withdraw():
+    data = request.json
+    user = User.query.filter_by(username=data['username']).first()
+    if user and user.balance >= data['amount']:
+        user.balance -= data['amount']
+        transaction = Transaction(user_id=user.id, amount=-data['amount'], transaction_type='withdrawal')
+        db.session.add(transaction)
+        db.session.commit()
+        return jsonify({"message": "Withdrawal successful!", "balance": user.balance})
+    return jsonify({"message": "Insufficient balance or user not found"}), 400
 
 if __name__ == '__main__':
-    app.run(port=5000)
+    with app.app_context():  # 設置應用程式上下文
+        db.create_all()  # 創建資料表
+    app.run(port=5000, debug=True)
+
