@@ -72,25 +72,34 @@ public class client extends JFrame {
             os.close();
 
             if (conn.getResponseCode() == 200) {
-                JSONObject response = new JSONObject(new String(conn.getInputStream().readAllBytes()));
-                String role = response.getString("role");
-
-                switch (role) {
-                    case "MEMBER":
-                        new MemberFrame().setVisible(true);
-                        break;
-                    case "STAFF":
-                        new StaffFrame().setVisible(true);
-                        break;
-                    case "ADMIN":
-                        new AdminFrame().setVisible(true);
-                        break;
-                    default:
-                        JOptionPane.showMessageDialog(this, "Unknown role!");
+                InputStream inputStream = conn.getInputStream();
+                String responseBody = new String(inputStream.readAllBytes()).trim();
+                System.out.println("Response Body: " + responseBody); // 調試輸出
+            
+                // 檢查 JSON 是否能正確解析
+                JSONObject response = new JSONObject(responseBody);
+                if (response.getBoolean("success")) {
+                    JSONObject data = response.getJSONObject("data");
+                    String role = data.getString("role"); // 提取角色
+                    System.out.println("Role: " + role);
+                    switch (role) {
+                        case "MEMBER":
+                            new MemberFrame().setVisible(true);
+                            break;
+                        case "STAFF":
+                            new StaffFrame().setVisible(true);
+                            break;
+                        case "ADMIN":
+                            new AdminFrame().setVisible(true);
+                            break;
+                        default:
+                            JOptionPane.showMessageDialog(this, "Unknown role!");
+                    }
+                    this.dispose();
+                } else {
+                    String error = response.getString("error");
+                    System.out.println("Error: " + error);
                 }
-                this.dispose();
-            } else {
-                JOptionPane.showMessageDialog(this, "Invalid credentials!");
             }
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
