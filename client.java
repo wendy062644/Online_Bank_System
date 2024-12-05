@@ -1,4 +1,5 @@
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -12,29 +13,49 @@ public class client extends JFrame {
 
     public client() {
         setTitle("Login");
-        setSize(300, 200);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(null);
+        setSize(400, 250);
+        setLocationRelativeTo(null);
 
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(Color.LIGHT_GRAY);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 10, 10, 10); // 設置邊距
+
+        // 帳號
         JLabel usernameLabel = new JLabel("Username:");
-        usernameLabel.setBounds(10, 30, 80, 25);
-        add(usernameLabel);
+        usernameLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        panel.add(usernameLabel, gbc);
 
-        usernameField = new JTextField();
-        usernameField.setBounds(100, 30, 165, 25);
-        add(usernameField);
+        usernameField = new JTextField(20);
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        panel.add(usernameField, gbc);
 
+        // 密碼
         JLabel passwordLabel = new JLabel("Password:");
-        passwordLabel.setBounds(10, 70, 80, 25);
-        add(passwordLabel);
+        passwordLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        panel.add(passwordLabel, gbc);
 
-        passwordField = new JPasswordField();
-        passwordField.setBounds(100, 70, 165, 25);
-        add(passwordField);
+        passwordField = new JPasswordField(20);
+        gbc.gridx = 1;
+        gbc.gridy = 1;
+        panel.add(passwordField, gbc);
 
+        // 登錄
         JButton loginButton = new JButton("Login");
-        loginButton.setBounds(10, 110, 120, 25);
-        add(loginButton);
+        loginButton.setBackground(Color.GREEN);
+        loginButton.setFont(new Font("Arial", Font.BOLD, 14));
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
+        panel.add(loginButton, gbc);
+
+        add(panel);
 
         loginButton.addActionListener(new ActionListener() {
             @Override
@@ -96,7 +117,7 @@ public class client extends JFrame {
                                     String balanceResponse = new String(balanceStream.readAllBytes()).trim();
                                     JSONObject balanceJson = new JSONObject(balanceResponse);
                                     double balance = balanceJson.getJSONObject("data").getDouble("balance");
-                                    new MemberFrame(balance).setVisible(true);
+                                    new MemberFrame(balance, userId, new String(password)).setVisible(true);
                                 } else {
                                     JOptionPane.showMessageDialog(this, "Failed to retrieve balance.");
                                 }
@@ -132,35 +153,340 @@ public class client extends JFrame {
     }
 }
 
+// 取款
+class WithdrawDialog extends JDialog {
+    public WithdrawDialog(JFrame parent, int userId, Runnable updateBalance) {
+        super(parent, "Withdraw Money", true);
+        setSize(400, 300);
+        setLayout(new GridBagLayout());
+        setLocationRelativeTo(parent);
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 10, 10, 10);
+
+        // Amount
+        JLabel amountLabel = new JLabel("Amount:");
+        JTextField amountField = new JTextField(20);
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        add(amountLabel, gbc);
+        gbc.gridx = 1;
+        add(amountField, gbc);
+
+        // Password
+        JLabel passwordLabel = new JLabel("Password:");
+        JPasswordField passwordField = new JPasswordField(20);
+
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        add(passwordLabel, gbc);
+        gbc.gridx = 1;
+        add(passwordField, gbc);
+
+        // Buttons
+        JButton withdrawButton = new JButton("Withdraw");
+        JButton cancelButton = new JButton("Cancel");
+
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        add(withdrawButton, gbc);
+        gbc.gridx = 1;
+        add(cancelButton, gbc);
+
+        // Withdraw button action
+        withdrawButton.addActionListener(e -> {
+            String amountStr = amountField.getText();
+            String password = new String(passwordField.getPassword());
+
+            try {
+                double amount = Double.parseDouble(amountStr);
+
+                URI uri = new URI("http", null, "127.0.0.1", 5000, "/member/withdraw", null, null);
+                URL url = uri.toURL();
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject json = new JSONObject();
+                json.put("user_id", userId);
+                json.put("amount", amount);
+                json.put("password", password); // 动态输入密码
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(json.toString().getBytes());
+                    os.flush();
+                }
+
+                if (conn.getResponseCode() == 200) {
+                    JOptionPane.showMessageDialog(this, "Withdrawal successful!");
+                    updateBalance.run();
+                } else {
+                    InputStream errorStream = conn.getErrorStream();
+                    String errorResponse = new String(errorStream.readAllBytes());
+                    JOptionPane.showMessageDialog(this, "Withdrawal failed: " + errorResponse);
+                }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid amount.");
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+            }
+
+            dispose();
+        });
+
+        cancelButton.addActionListener(e -> dispose());
+    }
+}
+
+// 匯款
+class TransferDialog extends JDialog {
+    public TransferDialog(JFrame parent, int userId, Runnable updateBalance) {
+        super(parent, "Transfer Money", true);
+        setSize(400, 400);
+        setLayout(new GridBagLayout());
+        setLocationRelativeTo(parent);
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 10, 10, 10);
+
+        // Recipient ID
+        JLabel recipientLabel = new JLabel("Recipient ID:");
+        JTextField recipientField = new JTextField(20);
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        add(recipientLabel, gbc);
+        gbc.gridx = 1;
+        add(recipientField, gbc);
+
+        // Amount
+        JLabel amountLabel = new JLabel("Amount:");
+        JTextField amountField = new JTextField(20);
+
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        add(amountLabel, gbc);
+        gbc.gridx = 1;
+        add(amountField, gbc);
+
+        // Password
+        JLabel passwordLabel = new JLabel("Password:");
+        JPasswordField passwordField = new JPasswordField(20);
+
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        add(passwordLabel, gbc);
+        gbc.gridx = 1;
+        add(passwordField, gbc);
+
+        // Buttons
+        JButton transferButton = new JButton("Transfer");
+        JButton cancelButton = new JButton("Cancel");
+
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        add(transferButton, gbc);
+        gbc.gridx = 1;
+        add(cancelButton, gbc);
+
+        // Transfer button action
+        transferButton.addActionListener(e -> {
+            String recipientId = recipientField.getText();
+            String amountStr = amountField.getText();
+            String password = new String(passwordField.getPassword());
+
+            try {
+                double amount = Double.parseDouble(amountStr);
+
+                URI uri = new URI("http", null, "127.0.0.1", 5000, "/member/transfer", null, null);
+                URL url = uri.toURL();
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject json = new JSONObject();
+                json.put("user_id", userId);
+                json.put("recipient_id", recipientId);
+                json.put("amount", amount);
+                json.put("password", password); // 将密码传递给后端
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(json.toString().getBytes());
+                    os.flush();
+                }
+
+                if (conn.getResponseCode() == 200) {
+                    JOptionPane.showMessageDialog(this, "Transfer successful!");
+                    updateBalance.run();
+                } else {
+                    InputStream errorStream = conn.getErrorStream();
+                    String errorResponse = new String(errorStream.readAllBytes());
+                    JOptionPane.showMessageDialog(this, "Transfer failed: " + errorResponse);
+                }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid amount.");
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+            }
+
+            dispose();
+        });
+
+        cancelButton.addActionListener(e -> dispose());
+    }
+}
+
+// 存款
+class DepositDialog extends JDialog {
+    public DepositDialog(JFrame parent, int userId, Runnable updateBalance) {
+        super(parent, "Deposit Money", true);
+        setSize(400, 300);
+        setLayout(new GridBagLayout());
+        setLocationRelativeTo(parent);
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 10, 10, 10);
+
+        JLabel amountLabel = new JLabel("Amount:");
+        JTextField amountField = new JTextField(20);
+        JLabel passwordLabel = new JLabel("Password:");
+        JPasswordField passwordField = new JPasswordField(20);
+
+        JButton depositButton = new JButton("Deposit");
+        JButton cancelButton = new JButton("Cancel");
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        add(amountLabel, gbc);
+        gbc.gridx = 1;
+        add(amountField, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        add(passwordLabel, gbc);
+        gbc.gridx = 1;
+        add(passwordField, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        add(depositButton, gbc);
+        gbc.gridx = 1;
+        add(cancelButton, gbc);
+
+        depositButton.addActionListener(e -> {
+            String amountStr = amountField.getText();
+            String password = new String(passwordField.getPassword());
+
+            try {
+                double amount = Double.parseDouble(amountStr);
+
+                URI uri = new URI("http", null, "127.0.0.1", 5000, "/member/deposit", null, null);
+                URL url = uri.toURL();
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+
+                JSONObject json = new JSONObject();
+                json.put("user_id", userId);
+                json.put("amount", amount);
+                json.put("password", password);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(json.toString().getBytes());
+                    os.flush();
+                }
+
+                if (conn.getResponseCode() == 200) {
+                    JOptionPane.showMessageDialog(this, "Deposit successful!");
+                    updateBalance.run();
+                } else {
+                    InputStream errorStream = conn.getErrorStream();
+                    String errorResponse = new String(errorStream.readAllBytes());
+                    JOptionPane.showMessageDialog(this, "Deposit failed: " + errorResponse);
+                }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid amount.");
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+            }
+
+            dispose();
+        });
+
+        cancelButton.addActionListener(e -> dispose());
+    }
+}
+
 // Member Frame
 class MemberFrame extends JFrame {
-    public MemberFrame(double balance) {
-        setTitle("Member Dashboard");
-        setSize(400, 300);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(null);
+    private double balance;
+    private int userId;
+    private String userPassword;
 
-        JLabel balanceLabel = new JLabel("Current Balance: $" + balance);
-        balanceLabel.setBounds(50, 50, 300, 25);
-        add(balanceLabel);
+    public MemberFrame(double initialBalance, int userId, String userPassword) {
+        this.balance = initialBalance;
+        this.userId = userId;
+        this.userPassword = userPassword;
+
+        setTitle("Member Dashboard");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(500, 400);
+        setLocationRelativeTo(null);
+
+        JPanel panel = new JPanel(new GridLayout(5, 1, 10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        panel.setBackground(Color.WHITE);
+
+        JLabel balanceLabel = new JLabel("Current Balance: $" + balance, JLabel.CENTER);
+        balanceLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        balanceLabel.setForeground(Color.BLUE);
+        panel.add(balanceLabel);
 
         JButton transferButton = new JButton("Transfer Money");
-        transferButton.setBounds(50, 100, 150, 30);
-        add(transferButton);
-
         JButton depositButton = new JButton("Deposit Money");
-        depositButton.setBounds(50, 150, 150, 30);
-        add(depositButton);
-
         JButton withdrawButton = new JButton("Withdraw Money");
-        withdrawButton.setBounds(50, 200, 150, 30);
-        add(withdrawButton);
+        JButton logoutButton = new JButton("Logout");
 
-        transferButton
-                .addActionListener(e -> JOptionPane.showMessageDialog(this, "Transfer functionality coming soon."));
-        depositButton.addActionListener(e -> JOptionPane.showMessageDialog(this, "Deposit functionality coming soon."));
-        withdrawButton
-                .addActionListener(e -> JOptionPane.showMessageDialog(this, "Withdraw functionality coming soon."));
+        panel.add(transferButton);
+        panel.add(depositButton);
+        panel.add(withdrawButton);
+        panel.add(logoutButton);
+
+        // 更新餘額
+        Runnable updateBalance = () -> {
+            try {
+                URI uri = new URI("http", null, "127.0.0.1", 5000, "/member/balance", "user_id=" + userId, null);
+                URL url = uri.toURL();
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+
+                if (conn.getResponseCode() == 200) {
+                    InputStream inputStream = conn.getInputStream();
+                    String responseBody = new String(inputStream.readAllBytes()).trim();
+                    JSONObject response = new JSONObject(responseBody);
+                    balance = response.getJSONObject("data").getDouble("balance");
+                    balanceLabel.setText("Current Balance: $" + balance);
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to update balance.");
+                }
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+            }
+        };
+
+        // 按鈕事件
+        transferButton.addActionListener(e -> new TransferDialog(this, userId, updateBalance).setVisible(true));
+        depositButton.addActionListener(e -> new DepositDialog(this, userId, updateBalance).setVisible(true));
+        withdrawButton.addActionListener(e -> new WithdrawDialog(this, userId, updateBalance).setVisible(true));
+        logoutButton.addActionListener(e -> {
+            JOptionPane.showMessageDialog(this, "Logging out...");
+            this.dispose();
+            new client().setVisible(true); // 返回登录界面
+        });
+
+        add(panel);
     }
 }
 
