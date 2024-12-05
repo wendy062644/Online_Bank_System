@@ -10,7 +10,9 @@ server 開啟 python server.py
 client 編譯 javac -Xlint:deprecation client.java
 
 ## Administrator account
-Account: admin    Password: password
+Account: admin  
+Password: password
 
 ## Test account
-Account: test1    Password: 1234
+Account: test1  
+Password: 1234
