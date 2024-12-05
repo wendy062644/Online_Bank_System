@@ -12,7 +12,7 @@ python database.py
 
 ## run
 python server.py  
-javac -Xlint:deprecation client.java
+javac -Xlint:deprecation client.java  
 java client.java
 
 ## Administrator account
