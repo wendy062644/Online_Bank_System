@@ -3,6 +3,8 @@
 ## python dependency
 pip install flask
 
+pip install flask_cors
+
 pip install flask-sqlalchemy
 
 database 建立資料 python database.py
