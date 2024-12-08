@@ -1,19 +1,24 @@
 # Online_Bank_System
 
-## python dependency
+## python dependency  
+pip install numpy  
 pip install flask  
 pip install flask_cors  
 pip install flask-sqlalchemy  
 
-## java dependency
+## environment
+jdk-23.0.1  
+Python 3.12  
 
 ## database initialize
 python database.py  
 
+## compile
+javac -Xlint:deprecation client.java  
+
 ## run
 python server.py  
-javac -Xlint:deprecation client.java  
-java client.java
+java client.java  
 
 ## Account
 Account: admin  
