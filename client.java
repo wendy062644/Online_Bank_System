@@ -59,6 +59,15 @@ public class client extends JFrame {
         add(panel);
 
         loginButton.addActionListener(e -> login());
+
+        passwordField.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    login();
+                }
+            }
+        });
     }
 
     private void login() {
@@ -557,12 +566,16 @@ class AdminFrame extends JFrame {
             if (selectedRow >= 0) {
                 int userId = (int) userTable.getValueAt(selectedRow, 0);
                 String username = (String) userTable.getValueAt(selectedRow, 1);
+                Object balanceValue = userTable.getValueAt(selectedRow, 2);
+                double balance = balanceValue instanceof Double
+                    ? (Double) balanceValue
+                    : Double.parseDouble(balanceValue.toString());
                 String role = (String) userTable.getValueAt(selectedRow, 3);
-                new ModifyUserDialog(this, userId, username, role, this::fetchUsers).setVisible(true);
+                new ModifyUserDialog(this, userId, username, role, balance, this::fetchUsers).setVisible(true);
             } else {
                 JOptionPane.showMessageDialog(this, "Please select a user to modify.");
             }
-        });
+        });        
 
         // Logout Action
         logoutButton.addActionListener(e -> {
@@ -712,7 +725,7 @@ class CreateUserDialog extends JDialog {
     }
 }
 
-public class ModifyUserDialog extends JDialog {
+class ModifyUserDialog extends JDialog {
     public ModifyUserDialog(JFrame parent, int userId, String username, String role, double balance, Runnable onUpdate) {
         super(parent, "Modify User Info", true);
         setSize(300, 350);
