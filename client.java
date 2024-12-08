@@ -6,6 +6,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 public class client extends JFrame {
     private JTextField usernameField;
@@ -515,22 +516,99 @@ class StaffFrame extends JFrame {
 
 // Admin Frame
 class AdminFrame extends JFrame {
+    private JTable userTable;
+
     public AdminFrame() {
         setTitle("Admin Dashboard");
-        setSize(400, 300);
+        setSize(600, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(null);
+        setLayout(new BorderLayout());
 
-        JButton createUserButton = new JButton("Create User");
-        createUserButton.setBounds(50, 50, 150, 30);
-        add(createUserButton);
+        // Panel for top buttons
+        JPanel topPanel = new JPanel(new FlowLayout());
+        JButton refreshButton = new JButton("Refresh");
+        JButton createUserButton = new JButton("Create Account");
+        topPanel.add(refreshButton);
+        topPanel.add(createUserButton);
+        add(topPanel, BorderLayout.NORTH);
 
-        JButton modifyUserInfoButton = new JButton("Modify User Info");
-        modifyUserInfoButton.setBounds(50, 100, 150, 30);
-        add(modifyUserInfoButton);
+        userTable = new JTable();
+        JScrollPane scrollPane = new JScrollPane(userTable);
+        add(scrollPane, BorderLayout.CENTER);
 
+        // Panel for bottom buttons
+        JPanel bottomPanel = new JPanel(new FlowLayout());
+        JButton modifyUserButton = new JButton("Modify Selected User");
+        JButton logoutButton = new JButton("Logout");
+        bottomPanel.add(modifyUserButton);
+        bottomPanel.add(logoutButton);
+        add(bottomPanel, BorderLayout.SOUTH);
+
+        // Fetch and display users on initialization
+        fetchUsers();
+
+        // Refresh Users Action
+        refreshButton.addActionListener(e -> fetchUsers());
+
+        // Create Account Action
         createUserButton.addActionListener(e -> new CreateUserDialog(this).setVisible(true));
-        modifyUserInfoButton.addActionListener(e -> new ModifyUserDialog(this).setVisible(true));
+
+        // Modify User Action
+        modifyUserButton.addActionListener(e -> {
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                String username = (String) userTable.getValueAt(selectedRow, 1);
+                String role = (String) userTable.getValueAt(selectedRow, 3);
+                new ModifyUserDialog(this, userId, username, role, this::fetchUsers).setVisible(true);
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to modify.");
+            }
+        });
+
+        // Logout Action
+        logoutButton.addActionListener(e -> {
+            JOptionPane.showMessageDialog(this, "Logging out...");
+            this.dispose();
+            new client().setVisible(true); // Return to login screen
+        });
+    }
+
+    private void fetchUsers() {
+        try {
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/admin/get_users", null, null);
+            URL url = uri.toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+
+            if (conn.getResponseCode() == 200) {
+                InputStream inputStream = conn.getInputStream();
+                String responseBody = new String(inputStream.readAllBytes());
+                JSONObject response = new JSONObject(responseBody);
+
+                if (response.getBoolean("success")) {
+                    JSONArray users = response.getJSONArray("data");
+                    Object[][] rowData = new Object[users.length()][4];
+                    for (int i = 0; i < users.length(); i++) {
+                        JSONObject user = users.getJSONObject(i);
+                        rowData[i][0] = user.getInt("id");
+                        rowData[i][1] = user.getString("username");
+                        rowData[i][2] = user.getDouble("balance");
+                        rowData[i][3] = user.getString("role");
+                    }
+                    userTable.setModel(new javax.swing.table.DefaultTableModel(
+                            rowData,
+                            new String[] { "ID", "Username", "Balance", "Role" }
+                    ));
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to fetch users: " + response.getString("error"));
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, "Server error: " + conn.getResponseCode());
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
     }
 }
 
@@ -626,18 +704,14 @@ class CreateUserDialog extends JDialog {
 }
 
 class ModifyUserDialog extends JDialog {
-    public ModifyUserDialog(JFrame parent) {
+    public ModifyUserDialog(JFrame parent, int userId, String username, String role, Runnable onUpdate) {
         super(parent, "Modify User Info", true);
         setSize(300, 250);
         setLayout(null);
 
-        JLabel userIdLabel = new JLabel("User ID:");
-        userIdLabel.setBounds(10, 20, 80, 25);
-        add(userIdLabel);
-
-        JTextField userIdField = new JTextField();
-        userIdField.setBounds(100, 20, 165, 25);
-        add(userIdField);
+        JLabel usernameLabel = new JLabel("Username: " + username);
+        usernameLabel.setBounds(10, 20, 200, 25);
+        add(usernameLabel);
 
         JLabel passwordLabel = new JLabel("New Password:");
         passwordLabel.setBounds(10, 60, 100, 25);
@@ -652,7 +726,8 @@ class ModifyUserDialog extends JDialog {
         add(roleLabel);
 
         JComboBox<String> roleBox = new JComboBox<>(new String[] { "MEMBER", "STAFF", "ADMIN" });
-        roleBox.setBounds(100, 100, 165, 25);
+        roleBox.setBounds(120, 100, 145, 25);
+        roleBox.setSelectedItem(role);
         add(roleBox);
 
         JButton modifyButton = new JButton("Modify");
@@ -664,9 +739,8 @@ class ModifyUserDialog extends JDialog {
         add(cancelButton);
 
         modifyButton.addActionListener(e -> {
-            String userId = userIdField.getText();
             char[] password = passwordField.getPassword();
-            String role = (String) roleBox.getSelectedItem();
+            String newRole = (String) roleBox.getSelectedItem();
 
             try {
                 URI modifyUserUri = new URI("http", null, "127.0.0.1", 5000, "/admin/modify_user", null, null);
@@ -678,8 +752,10 @@ class ModifyUserDialog extends JDialog {
 
                 JSONObject json = new JSONObject();
                 json.put("user_id", userId);
-                json.put("password", new String(password));
-                json.put("role", role);
+                if (password.length > 0) {
+                    json.put("password", new String(password));
+                }
+                json.put("role", newRole);
 
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(json.toString().getBytes());
@@ -688,6 +764,8 @@ class ModifyUserDialog extends JDialog {
 
                 if (conn.getResponseCode() == 200) {
                     JOptionPane.showMessageDialog(this, "User info updated successfully!");
+                    onUpdate.run(); // Trigger refresh
+                    dispose();
                 } else {
                     InputStream errorStream = conn.getErrorStream();
                     String errorResponse = new String(errorStream.readAllBytes());
@@ -696,7 +774,6 @@ class ModifyUserDialog extends JDialog {
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
             }
-            dispose();
         });
 
         cancelButton.addActionListener(e -> dispose());
