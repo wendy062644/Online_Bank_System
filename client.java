@@ -21,9 +21,9 @@ public class client extends JFrame {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBackground(Color.LIGHT_GRAY);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(10, 10, 10, 10); // 設置邊距
+        gbc.insets = new Insets(10, 10, 10, 10); // Set padding
 
-        // 帳號
+        // Username
         JLabel usernameLabel = new JLabel("Username:");
         usernameLabel.setFont(new Font("Arial", Font.BOLD, 14));
         gbc.gridx = 0;
@@ -35,7 +35,7 @@ public class client extends JFrame {
         gbc.gridy = 0;
         panel.add(usernameField, gbc);
 
-        // 密碼
+        // Password
         JLabel passwordLabel = new JLabel("Password:");
         passwordLabel.setFont(new Font("Arial", Font.BOLD, 14));
         gbc.gridx = 0;
@@ -47,7 +47,7 @@ public class client extends JFrame {
         gbc.gridy = 1;
         panel.add(passwordField, gbc);
 
-        // 登錄
+        // Login Button
         JButton loginButton = new JButton("Login");
         loginButton.setBackground(Color.GREEN);
         loginButton.setFont(new Font("Arial", Font.BOLD, 14));
@@ -58,12 +58,7 @@ public class client extends JFrame {
 
         add(panel);
 
-        loginButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                login();
-            }
-        });
+        loginButton.addActionListener(e -> login());
     }
 
     private void login() {
@@ -79,18 +74,18 @@ public class client extends JFrame {
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setDoOutput(true);
 
-            // 構建 JSON 請求
+            // Build JSON request
             JSONObject json = new JSONObject();
             json.put("username", username);
-            json.put("password", new String(password)); // 在這裡暫時轉換為 String，發送後立即清除密碼陣列
+            json.put("password", new String(password)); // Temporarily convert to String for sending
 
-            // 清空密碼陣列內容以提高安全性
+            // Clear password array for security
             java.util.Arrays.fill(password, '\0');
 
-            OutputStream os = conn.getOutputStream();
-            os.write(json.toString().getBytes());
-            os.flush();
-            os.close();
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(json.toString().getBytes());
+                os.flush();
+            }
 
             if (conn.getResponseCode() == 200) {
                 InputStream inputStream = conn.getInputStream();
@@ -102,51 +97,54 @@ public class client extends JFrame {
                     String role = data.getString("role");
                     int userId = data.getInt("id");
 
-                    // 檢查 JSON 是否能正確解析
-                    if (response.getBoolean("success")) {
-                        System.out.println("Role: " + role);
-                        switch (role) {
-                            case "MEMBER":
-                                // 查詢餘額
-                                URI balanceUri = new URI("http", null, "127.0.0.1", 5000, "/member/balance",
-                                        "user_id=" + userId, null);
-                                URL balanceUrl = balanceUri.toURL();
-                                HttpURLConnection balanceConn = (HttpURLConnection) balanceUrl.openConnection();
-                                balanceConn.setRequestMethod("GET");
-                                if (balanceConn.getResponseCode() == 200) {
-                                    InputStream balanceStream = balanceConn.getInputStream();
-                                    String balanceResponse = new String(balanceStream.readAllBytes()).trim();
-                                    JSONObject balanceJson = new JSONObject(balanceResponse);
-                                    double balance = balanceJson.getJSONObject("data").getDouble("balance");
-                                    new MemberFrame(balance, userId, new String(password)).setVisible(true);
-                                } else {
-                                    JOptionPane.showMessageDialog(this, "Failed to retrieve balance.");
-                                }
-                                break;
-                            case "STAFF":
-                                new StaffFrame().setVisible(true);
-                                break;
-                            case "ADMIN":
-                                new AdminFrame().setVisible(true);
-                                break;
-                            default:
-                                JOptionPane.showMessageDialog(this, "Unknown role!");
-                        }
-                        this.dispose();
-                    } else {
-                        String error = response.getString("error");
-                        System.out.println("Error: " + error);
+                    switch (role) {
+                        case "MEMBER":
+                            handleMemberLogin(userId);
+                            break;
+                        case "STAFF":
+                            new StaffFrame().setVisible(true);
+                            break;
+                        case "ADMIN":
+                            new AdminFrame().setVisible(true);
+                            break;
+                        default:
+                            JOptionPane.showMessageDialog(this, "Unknown role!");
                     }
-
                     this.dispose();
                 } else {
-                    String error = response.getString("error");
-                    JOptionPane.showMessageDialog(this, "Login failed: " + error);
+                    showError(response.getString("error"));
                 }
+            } else {
+                showError("Login failed. Server returned status: " + conn.getResponseCode());
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+            showError("Error: " + ex.getMessage());
         }
+    }
+
+    private void handleMemberLogin(int userId) {
+        try {
+            URI balanceUri = new URI("http", null, "127.0.0.1", 5000, "/member/balance", "user_id=" + userId, null);
+            URL balanceUrl = balanceUri.toURL();
+            HttpURLConnection balanceConn = (HttpURLConnection) balanceUrl.openConnection();
+            balanceConn.setRequestMethod("GET");
+
+            if (balanceConn.getResponseCode() == 200) {
+                InputStream balanceStream = balanceConn.getInputStream();
+                String balanceResponse = new String(balanceStream.readAllBytes()).trim();
+                JSONObject balanceJson = new JSONObject(balanceResponse);
+                double balance = balanceJson.getJSONObject("data").getDouble("balance");
+                new MemberFrame(balance, userId, "").setVisible(true);
+            } else {
+                showError("Failed to retrieve balance.");
+            }
+        } catch (Exception ex) {
+            showError("Error retrieving balance: " + ex.getMessage());
+        }
+    }
+
+    private void showError(String message) {
+        JOptionPane.showMessageDialog(this, message, "Login Error", JOptionPane.ERROR_MESSAGE);
     }
 
     public static void main(String[] args) {
@@ -663,50 +661,61 @@ class CreateUserDialog extends JDialog {
             char[] password = passwordField.getPassword();
             String role = (String) roleBox.getSelectedItem();
             String balanceStr = balanceField.getText();
-
+        
             try {
-                double balance = Double.parseDouble(balanceStr); // 解析初始餘額
+                if (username.isEmpty() || password.length == 0 || role.isEmpty() || balanceStr.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "All fields are required!", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+        
+                double balance = Double.parseDouble(balanceStr); // Parse initial balance
+                if (balance < 0) {
+                    JOptionPane.showMessageDialog(this, "Balance cannot be negative!", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+        
                 URI createUserUri = new URI("http", null, "127.0.0.1", 5000, "/admin/create_user", null, null);
                 URL createUserUrl = createUserUri.toURL();
                 HttpURLConnection conn = (HttpURLConnection) createUserUrl.openConnection();
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
-
+        
                 JSONObject json = new JSONObject();
                 json.put("username", username);
                 json.put("password", new String(password));
                 json.put("role", role);
                 json.put("balance", balance);
-
+        
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(json.toString().getBytes());
                     os.flush();
                 }
-
+        
                 if (conn.getResponseCode() == 201) {
                     JOptionPane.showMessageDialog(this, "User created successfully!");
                 } else {
                     InputStream errorStream = conn.getErrorStream();
                     String errorResponse = new String(errorStream.readAllBytes());
-                    JOptionPane.showMessageDialog(this, "Failed to create user: " + errorResponse);
+                    JOptionPane.showMessageDialog(this, "Failed to create user: " + errorResponse, "Error", JOptionPane.ERROR_MESSAGE);
                 }
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, "Invalid balance amount!");
+                JOptionPane.showMessageDialog(this, "Invalid balance amount! It must be a numeric value.", "Error", JOptionPane.ERROR_MESSAGE);
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
+        
             dispose();
-        });
+        });        
 
         cancelButton.addActionListener(e -> dispose());
     }
 }
 
-class ModifyUserDialog extends JDialog {
-    public ModifyUserDialog(JFrame parent, int userId, String username, String role, Runnable onUpdate) {
+public class ModifyUserDialog extends JDialog {
+    public ModifyUserDialog(JFrame parent, int userId, String username, String role, double balance, Runnable onUpdate) {
         super(parent, "Modify User Info", true);
-        setSize(300, 250);
+        setSize(300, 350);
         setLayout(null);
 
         JLabel usernameLabel = new JLabel("Username: " + username);
@@ -725,24 +734,39 @@ class ModifyUserDialog extends JDialog {
         roleLabel.setBounds(10, 100, 80, 25);
         add(roleLabel);
 
-        JComboBox<String> roleBox = new JComboBox<>(new String[] { "MEMBER", "STAFF", "ADMIN" });
+        JComboBox<String> roleBox = new JComboBox<>(new String[]{"MEMBER", "STAFF", "ADMIN"});
         roleBox.setBounds(120, 100, 145, 25);
         roleBox.setSelectedItem(role);
         add(roleBox);
 
+        JLabel balanceLabel = new JLabel("New Balance:");
+        balanceLabel.setBounds(10, 140, 100, 25);
+        add(balanceLabel);
+
+        JTextField balanceField = new JTextField(String.valueOf(balance));
+        balanceField.setBounds(120, 140, 145, 25);
+        add(balanceField);
+
         JButton modifyButton = new JButton("Modify");
-        modifyButton.setBounds(50, 150, 100, 25);
+        modifyButton.setBounds(50, 200, 100, 25);
         add(modifyButton);
 
         JButton cancelButton = new JButton("Cancel");
-        cancelButton.setBounds(160, 150, 100, 25);
+        cancelButton.setBounds(160, 200, 100, 25);
         add(cancelButton);
 
         modifyButton.addActionListener(e -> {
             char[] password = passwordField.getPassword();
             String newRole = (String) roleBox.getSelectedItem();
+            String newBalanceStr = balanceField.getText();
 
             try {
+                double newBalance = Double.parseDouble(newBalanceStr);
+                if (newBalance < 0) {
+                    JOptionPane.showMessageDialog(this, "Balance cannot be negative!", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
                 URI modifyUserUri = new URI("http", null, "127.0.0.1", 5000, "/admin/modify_user", null, null);
                 URL modifyUserUrl = modifyUserUri.toURL();
                 HttpURLConnection conn = (HttpURLConnection) modifyUserUrl.openConnection();
@@ -756,6 +780,7 @@ class ModifyUserDialog extends JDialog {
                     json.put("password", new String(password));
                 }
                 json.put("role", newRole);
+                json.put("balance", newBalance);
 
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(json.toString().getBytes());
@@ -769,10 +794,12 @@ class ModifyUserDialog extends JDialog {
                 } else {
                     InputStream errorStream = conn.getErrorStream();
                     String errorResponse = new String(errorStream.readAllBytes());
-                    JOptionPane.showMessageDialog(this, "Failed to update user: " + errorResponse);
+                    JOptionPane.showMessageDialog(this, "Failed to update user: " + errorResponse, "Error", JOptionPane.ERROR_MESSAGE);
                 }
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid balance amount! It must be a numeric value.", "Error", JOptionPane.ERROR_MESSAGE);
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
         });
 

@@ -33,18 +33,37 @@ def get_balance():
 @app.route('/admin/create_user', methods=['POST'])
 def create_user():
     data = request.json
-    if not data.get('username') or not data.get('password') or not data.get('role'):
+    username = data.get('username')
+    password = data.get('password')
+    role = data.get('role')
+    balance = data.get('balance', 0)  # Default to 0 if not provided
+
+    if not username or not password or not role:
         return jsonify({'success': False, 'error': 'Missing required fields'}), 400
-    if data['role'] not in ['MEMBER', 'STAFF', 'ADMIN']:
+    if role not in ['MEMBER', 'STAFF', 'ADMIN']:
         return jsonify({'success': False, 'error': 'Invalid role'}), 400
 
-    hashed_password = generate_password_hash(data['password'])
     try:
-        query_db('INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
-                 (data['username'], hashed_password, data['role']))
-        return jsonify({'success': True, 'message': 'User created successfully'}), 201
+        balance = float(balance)
+        if balance < 0:
+            return jsonify({'success': False, 'error': 'Balance cannot be negative'}), 400
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid balance value'}), 400
+
+    hashed_password = generate_password_hash(password)
+    try:
+        with sqlite3.connect('bank.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO users (username, password, role, balance) VALUES (?, ?, ?, ?)',
+                (username, hashed_password, role, balance)
+            )
+            conn.commit()
+            return jsonify({'success': True, 'message': 'User created successfully!'}), 201
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'error': 'Username already exists'}), 409
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/member/withdraw', methods=['POST'])
 def withdraw():
@@ -120,6 +139,59 @@ def deposit():
         return jsonify({'success': False, 'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
         return jsonify({'success': False, 'error': f'Unexpected error: {str(e)}'}), 500
+    
+@app.route('/member/transfer', methods=['POST'])
+def transfer_money():
+    data = request.json
+    user_id = data.get('user_id')  # Sender's ID
+    recipient_id = data.get('recipient_id')  # Recipient's ID
+    amount = data.get('amount')  # Transfer amount
+    password = data.get('password')  # Sender's password
+
+    if not all([user_id, recipient_id, amount, password]):
+        return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+    try:
+        amount = float(amount)
+        if amount <= 0:
+            return jsonify({'success': False, 'error': 'Amount must be greater than zero'}), 400
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid amount'}), 400
+
+    try:
+        with sqlite3.connect('bank.db') as conn:
+            cursor = conn.cursor()
+
+            # Verify sender's identity
+            cursor.execute('SELECT password, balance FROM users WHERE id = ?', (user_id,))
+            sender = cursor.fetchone()
+            if not sender:
+                return jsonify({'success': False, 'error': 'Sender not found'}), 404
+
+            hashed_password, sender_balance = sender
+            if not check_password_hash(hashed_password, password):
+                return jsonify({'success': False, 'error': 'Incorrect password'}), 401
+
+            # Check sufficient balance
+            if sender_balance < amount:
+                return jsonify({'success': False, 'error': 'Insufficient funds'}), 400
+
+            # Check recipient existence
+            cursor.execute('SELECT id FROM users WHERE id = ?', (recipient_id,))
+            recipient = cursor.fetchone()
+            if not recipient:
+                return jsonify({'success': False, 'error': 'Recipient not found'}), 404
+
+            # Perform the transfer
+            new_sender_balance = sender_balance - amount
+            cursor.execute('UPDATE users SET balance = ? WHERE id = ?', (new_sender_balance, user_id))
+            cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (amount, recipient_id))
+            conn.commit()
+
+            return jsonify({'success': True, 'message': 'Transfer completed successfully'}), 200
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/admin/modify_user', methods=['POST'])
 def modify_user():
@@ -127,9 +199,17 @@ def modify_user():
     user_id = data.get('user_id')
     password = data.get('password')
     role = data.get('role')
+    balance = data.get('balance')
 
-    if not user_id or not role:
-        return jsonify({'success': False, 'error': 'Missing user_id or role'}), 400
+    if not user_id or not role or balance is None:
+        return jsonify({'success': False, 'error': 'Missing user_id, role, or balance'}), 400
+
+    try:
+        balance = float(balance)
+        if balance < 0:
+            return jsonify({'success': False, 'error': 'Balance cannot be negative'}), 400
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid balance value'}), 400
 
     try:
         with sqlite3.connect('bank.db') as conn:
@@ -137,12 +217,11 @@ def modify_user():
             if password:
                 hashed_password = generate_password_hash(password)
                 cursor.execute('UPDATE users SET password = ? WHERE id = ?', (hashed_password, user_id))
-            cursor.execute('UPDATE users SET role = ? WHERE id = ?', (role, user_id))
+            cursor.execute('UPDATE users SET role = ?, balance = ? WHERE id = ?', (role, balance, user_id))
             conn.commit()
             return jsonify({'success': True, 'message': 'User updated successfully!'}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
 
 @app.route('/admin/get_users', methods=['GET'])
 def get_users():
