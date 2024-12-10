@@ -8,7 +8,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class LoginPage extends JFrame {
@@ -29,7 +28,6 @@ public class LoginPage extends JFrame {
         gbc.insets = new Insets(10, 10, 10, 10); 
 
         JLabel usernameLabel = new JLabel("Username:");
-        usernameLabel.setFont(new Font("Arial", Font.BOLD, 14));
         gbc.gridx = 0;
         gbc.gridy = 0;
         panel.add(usernameLabel, gbc);
@@ -40,7 +38,6 @@ public class LoginPage extends JFrame {
         panel.add(usernameField, gbc);
 
         JLabel passwordLabel = new JLabel("Password:");
-        passwordLabel.setFont(new Font("Arial", Font.BOLD, 14));
         gbc.gridx = 0;
         gbc.gridy = 1;
         panel.add(passwordLabel, gbc);
@@ -51,8 +48,6 @@ public class LoginPage extends JFrame {
         panel.add(passwordField, gbc);
 
         JButton loginButton = new JButton("Login");
-        loginButton.setBackground(Color.GREEN);
-        loginButton.setFont(new Font("Arial", Font.BOLD, 14));
         gbc.gridx = 0;
         gbc.gridy = 2;
         gbc.gridwidth = 2;
@@ -96,11 +91,13 @@ public class LoginPage extends JFrame {
 
             if (conn.getResponseCode() == 200) {
                 InputStream inputStream = conn.getInputStream();
-                String responseBody = new String(inputStream.readAllBytes()).trim();
+                String responseBody = new String(inputStream.readAllBytes());
                 JSONObject response = new JSONObject(responseBody);
 
                 if (response.getBoolean("success")) {
-                    String role = response.getJSONObject("data").getString("role");
+                    JSONObject data = response.getJSONObject("data");
+                    int userId = data.getInt("id");
+                    String role = data.getString("role");
 
                     UserPanel panel;
                     switch (role) {
@@ -108,7 +105,7 @@ public class LoginPage extends JFrame {
                             panel = new AdminPanel();
                             break;
                         case "MEMBER":
-                            panel = new MemberPanel();
+                            panel = new MemberPanel(userId);
                             break;
                         default:
                             JOptionPane.showMessageDialog(this, "Role not supported.");
@@ -129,7 +126,3 @@ public class LoginPage extends JFrame {
         SwingUtilities.invokeLater(() -> new LoginPage().setVisible(true));
     }
 }
-
-
-
-

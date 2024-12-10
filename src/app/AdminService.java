@@ -102,7 +102,15 @@ public class AdminService {
      * @param password 新的用戶密碼
      * @param role     新的角色（如 MEMBER, STAFF, ADMIN）
      */
-    public static void modifyUser(int userId, String password, String role) {
+    /**
+     * 修改現有用戶的資訊
+     * 
+     * @param userId   用戶的ID
+     * @param password 新的用戶密碼
+     * @param role     新的角色（如 MEMBER, STAFF, ADMIN）
+     * @param balance  新的餘額
+     */
+    public static void modifyUser(int userId, String password, String role, double balance) {
         try {
             URI uri = new URI("http", null, "127.0.0.1", 5000, "/admin/modify_user", null, null);
             URL url = uri.toURL();
@@ -112,12 +120,37 @@ public class AdminService {
             conn.setDoOutput(true);
 
             JSONObject json = new JSONObject();
-            json.put("user_id", userId);
+            
+            // 🛠️ 確保所有必需的欄位都不為null
+            if (userId > 0) {
+                json.put("user_id", userId);
+            } else {
+                JOptionPane.showMessageDialog(null, "Invalid user ID.");
+                return;
+            }
+
+            // 🛠️ 傳遞密碼（如果不為空）
             if (password != null && !password.isEmpty()) {
                 json.put("password", password);
             }
-            json.put("role", role);
 
+            // 🛠️ 傳遞角色（不能為空）
+            if (role != null && !role.isEmpty()) {
+                json.put("role", role);
+            } else {
+                JOptionPane.showMessageDialog(null, "Role is required.");
+                return;
+            }
+
+            // 🛠️ 傳遞 balance，如果 balance < 0，報錯
+            if (balance >= 0) {
+                json.put("balance", balance);
+            } else {
+                JOptionPane.showMessageDialog(null, "Balance cannot be negative.");
+                return;
+            }
+
+            // 🛠️ 發送請求
             try (OutputStream os = conn.getOutputStream()) {
                 os.write(json.toString().getBytes());
                 os.flush();
@@ -134,4 +167,5 @@ public class AdminService {
             JOptionPane.showMessageDialog(null, "Error: " + ex.getMessage());
         }
     }
+
 }
