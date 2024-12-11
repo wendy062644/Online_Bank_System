@@ -500,24 +500,193 @@ class MemberFrame extends JFrame {
 
 // Staff Frame
 class StaffFrame extends JFrame {
+    private JTable userTable;
+
     public StaffFrame() {
         setTitle("Staff Dashboard");
-        setSize(400, 300);
+        setSize(600, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(null);
+        setLayout(new BorderLayout());
 
-        JButton viewMemberBalanceButton = new JButton("View Member Balance");
-        viewMemberBalanceButton.setBounds(50, 50, 200, 30);
-        add(viewMemberBalanceButton);
+        // Panel for top buttons
+        JPanel topPanel = new JPanel(new FlowLayout());
+        JButton refreshButton = new JButton("Refresh");
+        topPanel.add(refreshButton);
+        add(topPanel, BorderLayout.NORTH);
 
-        JButton viewTransactionHistoryButton = new JButton("View Transaction History");
-        viewTransactionHistoryButton.setBounds(50, 100, 200, 30);
-        add(viewTransactionHistoryButton);
+        // User table
+        userTable = new JTable();
+        JScrollPane scrollPane = new JScrollPane(userTable);
+        add(scrollPane, BorderLayout.CENTER);
 
-        viewMemberBalanceButton
-                .addActionListener(e -> JOptionPane.showMessageDialog(this, "Viewing member balance..."));
-        viewTransactionHistoryButton
-                .addActionListener(e -> JOptionPane.showMessageDialog(this, "Viewing transaction history..."));
+        // Panel for bottom buttons
+        JPanel bottomPanel = new JPanel(new FlowLayout());
+        JButton freezeAccountButton = new JButton("Freeze Account");
+        JButton viewTransactionButton = new JButton("View Transactions");
+        JButton depositButton = new JButton("Deposit Money");
+        JButton withdrawButton = new JButton("Withdraw Money");
+        JButton logoutButton = new JButton("Logout");
+
+        bottomPanel.add(freezeAccountButton);
+        bottomPanel.add(viewTransactionButton);
+        bottomPanel.add(depositButton);
+        bottomPanel.add(withdrawButton);
+        bottomPanel.add(logoutButton);
+        add(bottomPanel, BorderLayout.SOUTH);
+
+        // Fetch and display users on initialization
+        fetchUsers();
+
+        // Action listeners for buttons
+        refreshButton.addActionListener(e -> fetchUsers());
+
+        freezeAccountButton.addActionListener(e -> {
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                freezeAccount(userId);
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to freeze.");
+            }
+        });
+
+        viewTransactionButton.addActionListener(e -> {
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                viewTransactionHistory(userId);
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to view transactions.");
+            }
+        });
+
+        depositButton.addActionListener(e -> {
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                new DepositDialog(this, userId, this::fetchUsers).setVisible(true);
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to deposit money.");
+            }
+        });
+
+        withdrawButton.addActionListener(e -> {
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                new WithdrawDialog(this, userId, this::fetchUsers).setVisible(true);
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to withdraw money.");
+            }
+        });
+
+        logoutButton.addActionListener(e -> {
+            JOptionPane.showMessageDialog(this, "Logging out...");
+            this.dispose();
+            new client().setVisible(true); // Return to login screen
+        });
+    }
+
+    private void fetchUsers() {
+        try {
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/admin/get_users", null, null);
+            URL url = uri.toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+
+            if (conn.getResponseCode() == 200) {
+                InputStream inputStream = conn.getInputStream();
+                String responseBody = new String(inputStream.readAllBytes());
+                JSONObject response = new JSONObject(responseBody);
+
+                if (response.getBoolean("success")) {
+                    JSONArray users = response.getJSONArray("data");
+                    Object[][] rowData = new Object[users.length()][4];
+                    for (int i = 0; i < users.length(); i++) {
+                        JSONObject user = users.getJSONObject(i);
+                        rowData[i][0] = user.getInt("id");
+                        rowData[i][1] = user.getString("username");
+                        rowData[i][2] = user.getDouble("balance");
+                        rowData[i][3] = user.getString("role");
+                    }
+                    userTable.setModel(new javax.swing.table.DefaultTableModel(
+                            rowData,
+                            new String[] { "ID", "Username", "Balance", "Role" }));
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to fetch users: " + response.getString("error"));
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, "Server error: " + conn.getResponseCode());
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
+    }
+
+    private void freezeAccount(int userId) {
+        try {
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/staff/freeze_account", null, null);
+            URL url = uri.toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+
+            JSONObject json = new JSONObject();
+            json.put("user_id", userId);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(json.toString().getBytes());
+                os.flush();
+            }
+
+            if (conn.getResponseCode() == 200) {
+                JOptionPane.showMessageDialog(this, "Account frozen successfully for User ID: " + userId);
+                fetchUsers();
+            } else {
+                InputStream errorStream = conn.getErrorStream();
+                String errorResponse = new String(errorStream.readAllBytes());
+                JOptionPane.showMessageDialog(this, "Failed to freeze account: " + errorResponse);
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
+    }
+
+    private void viewTransactionHistory(int userId) {
+        try {
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/staff/view_transaction_history", "user_id=" + userId, null);
+            URL url = uri.toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+
+            if (conn.getResponseCode() == 200) {
+                InputStream inputStream = conn.getInputStream();
+                String responseBody = new String(inputStream.readAllBytes()).trim();
+                JSONObject response = new JSONObject(responseBody);
+
+                if (response.getBoolean("success")) {
+                    JSONArray transactions = response.getJSONArray("data");
+                    StringBuilder history = new StringBuilder("Transaction History for User ID: " + userId + "\n");
+                    for (int i = 0; i < transactions.length(); i++) {
+                        JSONObject transaction = transactions.getJSONObject(i);
+                        history.append("Transaction ID: ").append(transaction.getInt("transaction_id"))
+                                .append(", Amount: $").append(transaction.getDouble("amount"))
+                                .append(", Type: ").append(transaction.getString("type"))
+                                .append(", Timestamp: ").append(transaction.getString("timestamp"))
+                                .append("\n");
+                    }
+                    JOptionPane.showMessageDialog(this, history.toString());
+                } else {
+                    JOptionPane.showMessageDialog(this,
+                            "Failed to retrieve transaction history: " + response.getString("error"));
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, "Server error: " + conn.getResponseCode());
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
     }
 }
 
@@ -568,14 +737,14 @@ class AdminFrame extends JFrame {
                 String username = (String) userTable.getValueAt(selectedRow, 1);
                 Object balanceValue = userTable.getValueAt(selectedRow, 2);
                 double balance = balanceValue instanceof Double
-                    ? (Double) balanceValue
-                    : Double.parseDouble(balanceValue.toString());
+                        ? (Double) balanceValue
+                        : Double.parseDouble(balanceValue.toString());
                 String role = (String) userTable.getValueAt(selectedRow, 3);
                 new ModifyUserDialog(this, userId, username, role, balance, this::fetchUsers).setVisible(true);
             } else {
                 JOptionPane.showMessageDialog(this, "Please select a user to modify.");
             }
-        });        
+        });
 
         // Logout Action
         logoutButton.addActionListener(e -> {
@@ -609,8 +778,7 @@ class AdminFrame extends JFrame {
                     }
                     userTable.setModel(new javax.swing.table.DefaultTableModel(
                             rowData,
-                            new String[] { "ID", "Username", "Balance", "Role" }
-                    ));
+                            new String[] { "ID", "Username", "Balance", "Role" }));
                 } else {
                     JOptionPane.showMessageDialog(this, "Failed to fetch users: " + response.getString("error"));
                 }
@@ -674,59 +842,63 @@ class CreateUserDialog extends JDialog {
             char[] password = passwordField.getPassword();
             String role = (String) roleBox.getSelectedItem();
             String balanceStr = balanceField.getText();
-        
+
             try {
                 if (username.isEmpty() || password.length == 0 || role.isEmpty() || balanceStr.isEmpty()) {
                     JOptionPane.showMessageDialog(this, "All fields are required!", "Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-        
+
                 double balance = Double.parseDouble(balanceStr); // Parse initial balance
                 if (balance < 0) {
-                    JOptionPane.showMessageDialog(this, "Balance cannot be negative!", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Balance cannot be negative!", "Error",
+                            JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-        
+
                 URI createUserUri = new URI("http", null, "127.0.0.1", 5000, "/admin/create_user", null, null);
                 URL createUserUrl = createUserUri.toURL();
                 HttpURLConnection conn = (HttpURLConnection) createUserUrl.openConnection();
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
-        
+
                 JSONObject json = new JSONObject();
                 json.put("username", username);
                 json.put("password", new String(password));
                 json.put("role", role);
                 json.put("balance", balance);
-        
+
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(json.toString().getBytes());
                     os.flush();
                 }
-        
+
                 if (conn.getResponseCode() == 201) {
                     JOptionPane.showMessageDialog(this, "User created successfully!");
                 } else {
                     InputStream errorStream = conn.getErrorStream();
                     String errorResponse = new String(errorStream.readAllBytes());
-                    JOptionPane.showMessageDialog(this, "Failed to create user: " + errorResponse, "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Failed to create user: " + errorResponse, "Error",
+                            JOptionPane.ERROR_MESSAGE);
                 }
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, "Invalid balance amount! It must be a numeric value.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Invalid balance amount! It must be a numeric value.", "Error",
+                        JOptionPane.ERROR_MESSAGE);
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
-        
+
             dispose();
-        });        
+        });
 
         cancelButton.addActionListener(e -> dispose());
     }
 }
 
 class ModifyUserDialog extends JDialog {
-    public ModifyUserDialog(JFrame parent, int userId, String username, String role, double balance, Runnable onUpdate) {
+    public ModifyUserDialog(JFrame parent, int userId, String username, String role, double balance,
+            Runnable onUpdate) {
         super(parent, "Modify User Info", true);
         setSize(300, 350);
         setLayout(null);
@@ -747,7 +919,7 @@ class ModifyUserDialog extends JDialog {
         roleLabel.setBounds(10, 100, 80, 25);
         add(roleLabel);
 
-        JComboBox<String> roleBox = new JComboBox<>(new String[]{"MEMBER", "STAFF", "ADMIN"});
+        JComboBox<String> roleBox = new JComboBox<>(new String[] { "MEMBER", "STAFF", "ADMIN" });
         roleBox.setBounds(120, 100, 145, 25);
         roleBox.setSelectedItem(role);
         add(roleBox);
@@ -776,7 +948,8 @@ class ModifyUserDialog extends JDialog {
             try {
                 double newBalance = Double.parseDouble(newBalanceStr);
                 if (newBalance < 0) {
-                    JOptionPane.showMessageDialog(this, "Balance cannot be negative!", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Balance cannot be negative!", "Error",
+                            JOptionPane.ERROR_MESSAGE);
                     return;
                 }
 
@@ -807,10 +980,12 @@ class ModifyUserDialog extends JDialog {
                 } else {
                     InputStream errorStream = conn.getErrorStream();
                     String errorResponse = new String(errorStream.readAllBytes());
-                    JOptionPane.showMessageDialog(this, "Failed to update user: " + errorResponse, "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Failed to update user: " + errorResponse, "Error",
+                            JOptionPane.ERROR_MESSAGE);
                 }
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(this, "Invalid balance amount! It must be a numeric value.", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Invalid balance amount! It must be a numeric value.", "Error",
+                        JOptionPane.ERROR_MESSAGE);
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
