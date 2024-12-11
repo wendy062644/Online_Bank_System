@@ -504,7 +504,7 @@ class StaffFrame extends JFrame {
 
     public StaffFrame() {
         setTitle("Staff Dashboard");
-        setSize(600, 400);
+        setSize(700, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
@@ -601,17 +601,19 @@ class StaffFrame extends JFrame {
 
                 if (response.getBoolean("success")) {
                     JSONArray users = response.getJSONArray("data");
-                    Object[][] rowData = new Object[users.length()][4];
+                    Object[][] rowData = new Object[users.length()][5];
                     for (int i = 0; i < users.length(); i++) {
                         JSONObject user = users.getJSONObject(i);
                         rowData[i][0] = user.getInt("id");
                         rowData[i][1] = user.getString("username");
                         rowData[i][2] = user.getDouble("balance");
                         rowData[i][3] = user.getString("role");
+                        // Convert is_frozen from integer to boolean-like status
+                        rowData[i][4] = user.getInt("is_frozen") == 1 ? "Frozen" : "Active";
                     }
                     userTable.setModel(new javax.swing.table.DefaultTableModel(
                             rowData,
-                            new String[] { "ID", "Username", "Balance", "Role" }));
+                            new String[] { "ID", "Username", "Balance", "Role", "Status" }));
                 } else {
                     JOptionPane.showMessageDialog(this, "Failed to fetch users: " + response.getString("error"));
                 }
@@ -655,7 +657,8 @@ class StaffFrame extends JFrame {
 
     private void viewTransactionHistory(int userId) {
         try {
-            URI uri = new URI("http", null, "127.0.0.1", 5000, "/staff/view_transaction_history", "user_id=" + userId, null);
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/staff/view_transaction_history", "user_id=" + userId,
+                    null);
             URL url = uri.toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
@@ -696,7 +699,7 @@ class AdminFrame extends JFrame {
 
     public AdminFrame() {
         setTitle("Admin Dashboard");
-        setSize(600, 400);
+        setSize(700, 400);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
@@ -704,10 +707,13 @@ class AdminFrame extends JFrame {
         JPanel topPanel = new JPanel(new FlowLayout());
         JButton refreshButton = new JButton("Refresh");
         JButton createUserButton = new JButton("Create Account");
+        JButton unfreezeAccountButton = new JButton("Unfreeze Account");
         topPanel.add(refreshButton);
         topPanel.add(createUserButton);
+        topPanel.add(unfreezeAccountButton);
         add(topPanel, BorderLayout.NORTH);
 
+        // User table
         userTable = new JTable();
         JScrollPane scrollPane = new JScrollPane(userTable);
         add(scrollPane, BorderLayout.CENTER);
@@ -723,13 +729,21 @@ class AdminFrame extends JFrame {
         // Fetch and display users on initialization
         fetchUsers();
 
-        // Refresh Users Action
+        // Action listeners for buttons
         refreshButton.addActionListener(e -> fetchUsers());
 
-        // Create Account Action
         createUserButton.addActionListener(e -> new CreateUserDialog(this).setVisible(true));
 
-        // Modify User Action
+        unfreezeAccountButton.addActionListener(e -> {
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                unfreezeAccount(userId);
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to unfreeze.");
+            }
+        });
+
         modifyUserButton.addActionListener(e -> {
             int selectedRow = userTable.getSelectedRow();
             if (selectedRow >= 0) {
@@ -746,7 +760,6 @@ class AdminFrame extends JFrame {
             }
         });
 
-        // Logout Action
         logoutButton.addActionListener(e -> {
             JOptionPane.showMessageDialog(this, "Logging out...");
             this.dispose();
@@ -768,22 +781,54 @@ class AdminFrame extends JFrame {
 
                 if (response.getBoolean("success")) {
                     JSONArray users = response.getJSONArray("data");
-                    Object[][] rowData = new Object[users.length()][4];
+                    Object[][] rowData = new Object[users.length()][5];
                     for (int i = 0; i < users.length(); i++) {
                         JSONObject user = users.getJSONObject(i);
                         rowData[i][0] = user.getInt("id");
                         rowData[i][1] = user.getString("username");
                         rowData[i][2] = user.getDouble("balance");
                         rowData[i][3] = user.getString("role");
+                        // Convert is_frozen from integer to boolean-like status
+                        rowData[i][4] = user.getInt("is_frozen") == 1 ? "Frozen" : "Active";
                     }
                     userTable.setModel(new javax.swing.table.DefaultTableModel(
                             rowData,
-                            new String[] { "ID", "Username", "Balance", "Role" }));
+                            new String[] { "ID", "Username", "Balance", "Role", "Status" }));
                 } else {
                     JOptionPane.showMessageDialog(this, "Failed to fetch users: " + response.getString("error"));
                 }
             } else {
                 JOptionPane.showMessageDialog(this, "Server error: " + conn.getResponseCode());
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
+    }
+
+    private void unfreezeAccount(int userId) {
+        try {
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/admin/unfreeze_account", null, null);
+            URL url = uri.toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+
+            JSONObject json = new JSONObject();
+            json.put("user_id", userId);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(json.toString().getBytes());
+                os.flush();
+            }
+
+            if (conn.getResponseCode() == 200) {
+                JOptionPane.showMessageDialog(this, "Account unfrozen successfully for User ID: " + userId);
+                fetchUsers();
+            } else {
+                InputStream errorStream = conn.getErrorStream();
+                String errorResponse = new String(errorStream.readAllBytes());
+                JOptionPane.showMessageDialog(this, "Failed to unfreeze account: " + errorResponse);
             }
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
