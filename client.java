@@ -554,7 +554,7 @@ class StaffFrame extends JFrame {
             int selectedRow = userTable.getSelectedRow();
             if (selectedRow >= 0) {
                 int userId = (int) userTable.getValueAt(selectedRow, 0);
-                viewTransactionHistory(userId);
+                viewTransactionHistory(userId, "Staff Transaction Viewer");
             } else {
                 JOptionPane.showMessageDialog(this, "Please select a user to view transactions.");
             }
@@ -655,31 +655,41 @@ class StaffFrame extends JFrame {
         }
     }
 
-    private void viewTransactionHistory(int userId) {
+    private void viewTransactionHistory(int userId, String title) {
         try {
-            URI uri = new URI("http", null, "127.0.0.1", 5000, "/staff/view_transaction_history", "user_id=" + userId,
-                    null);
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/transactions", "user_id=" + userId, null);
             URL url = uri.toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-
+    
             if (conn.getResponseCode() == 200) {
                 InputStream inputStream = conn.getInputStream();
                 String responseBody = new String(inputStream.readAllBytes()).trim();
                 JSONObject response = new JSONObject(responseBody);
-
+    
                 if (response.getBoolean("success")) {
                     JSONArray transactions = response.getJSONArray("data");
-                    StringBuilder history = new StringBuilder("Transaction History for User ID: " + userId + "\n");
+                    StringBuilder history = new StringBuilder("Transaction History for User ID: " + userId + "\n\n");
                     for (int i = 0; i < transactions.length(); i++) {
                         JSONObject transaction = transactions.getJSONObject(i);
-                        history.append("Transaction ID: ").append(transaction.getInt("transaction_id"))
-                                .append(", Amount: $").append(transaction.getDouble("amount"))
-                                .append(", Type: ").append(transaction.getString("type"))
-                                .append(", Timestamp: ").append(transaction.getString("timestamp"))
-                                .append("\n");
+                        history.append("Transaction ID: ").append(transaction.getInt("id"))
+                                .append("\nAmount: ").append(transaction.getDouble("amount"))
+                                .append("\nNote: ").append(transaction.optString("note", "N/A"))
+                                .append("\nTimestamp: ").append(transaction.getString("transaction_time"))
+                                .append("\n\n");
                     }
-                    JOptionPane.showMessageDialog(this, history.toString());
+    
+                    // Display transaction history in a dialog
+                    JTextArea textArea = new JTextArea(history.toString());
+                    textArea.setEditable(false);
+                    JScrollPane scrollPane = new JScrollPane(textArea);
+                    scrollPane.setPreferredSize(new Dimension(500, 300));
+    
+                    JDialog dialog = new JDialog(this, title, true);
+                    dialog.add(scrollPane);
+                    dialog.pack();
+                    dialog.setLocationRelativeTo(this);
+                    dialog.setVisible(true);
                 } else {
                     JOptionPane.showMessageDialog(this,
                             "Failed to retrieve transaction history: " + response.getString("error"));
@@ -690,7 +700,7 @@ class StaffFrame extends JFrame {
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
         }
-    }
+    }    
 }
 
 // Admin Frame
@@ -708,9 +718,11 @@ class AdminFrame extends JFrame {
         JButton refreshButton = new JButton("Refresh");
         JButton createUserButton = new JButton("Create Account");
         JButton unfreezeAccountButton = new JButton("Unfreeze Account");
+        JButton viewTransactionButton = new JButton("View Transactions");
         topPanel.add(refreshButton);
         topPanel.add(createUserButton);
         topPanel.add(unfreezeAccountButton);
+        topPanel.add(viewTransactionButton);
         add(topPanel, BorderLayout.NORTH);
 
         // User table
@@ -764,6 +776,16 @@ class AdminFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "Logging out...");
             this.dispose();
             new client().setVisible(true); // Return to login screen
+        });
+
+        viewTransactionButton.addActionListener(e -> {
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                viewTransactionHistory(userId, "Admin Transaction Viewer");
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to view transactions.");
+            }
         });
     }
 
@@ -834,6 +856,53 @@ class AdminFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
         }
     }
+
+    private void viewTransactionHistory(int userId, String title) {
+        try {
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/transactions", "user_id=" + userId, null);
+            URL url = uri.toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+    
+            if (conn.getResponseCode() == 200) {
+                InputStream inputStream = conn.getInputStream();
+                String responseBody = new String(inputStream.readAllBytes()).trim();
+                JSONObject response = new JSONObject(responseBody);
+    
+                if (response.getBoolean("success")) {
+                    JSONArray transactions = response.getJSONArray("data");
+                    StringBuilder history = new StringBuilder("Transaction History for User ID: " + userId + "\n\n");
+                    for (int i = 0; i < transactions.length(); i++) {
+                        JSONObject transaction = transactions.getJSONObject(i);
+                        history.append("Transaction ID: ").append(transaction.getInt("id"))
+                                .append("\nAmount: ").append(transaction.getDouble("amount"))
+                                .append("\nNote: ").append(transaction.optString("note", "N/A"))
+                                .append("\nTimestamp: ").append(transaction.getString("transaction_time"))
+                                .append("\n\n");
+                    }
+    
+                    // Display transaction history in a dialog
+                    JTextArea textArea = new JTextArea(history.toString());
+                    textArea.setEditable(false);
+                    JScrollPane scrollPane = new JScrollPane(textArea);
+                    scrollPane.setPreferredSize(new Dimension(500, 300));
+    
+                    JDialog dialog = new JDialog(this, title, true);
+                    dialog.add(scrollPane);
+                    dialog.pack();
+                    dialog.setLocationRelativeTo(this);
+                    dialog.setVisible(true);
+                } else {
+                    JOptionPane.showMessageDialog(this,
+                            "Failed to retrieve transaction history: " + response.getString("error"));
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, "Server error: " + conn.getResponseCode());
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
+    }    
 }
 
 class CreateUserDialog extends JDialog {
