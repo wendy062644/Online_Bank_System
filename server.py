@@ -16,7 +16,7 @@ def query_db(query, args=(), one=False):
         return (result[0] if result else None) if one else result
 
 # Helper function to update balance and record transactions
-def update_balance(user_id, amount, operation):
+def update_balance(user_id, amount, operation, note=''):
     try:
         with sqlite3.connect('bank.db') as conn:
             cursor = conn.cursor()
@@ -36,8 +36,11 @@ def update_balance(user_id, amount, operation):
             # Update balance and record transaction
             cursor.execute('UPDATE users SET balance = ? WHERE id = ?', (new_balance, user_id))
             cursor.execute(
-                'INSERT INTO transactions (user_id, type, amount) VALUES (?, ?, ?)',
-                (user_id, operation, abs(amount))
+                '''
+                INSERT INTO transactions (user_id, type, amount, note) 
+                VALUES (?, ?, ?, ?)
+                ''', 
+                (user_id, operation, abs(amount), note)
             )
             conn.commit()
             return {'success': True, 'new_balance': new_balance}
@@ -109,6 +112,7 @@ def withdraw():
     user_id = data.get('user_id')
     amount = data.get('amount')
     password = data.get('password')
+    note = data.get('note', '')  # Optional note
 
     try:
         amount = float(amount)
@@ -121,18 +125,18 @@ def withdraw():
     if not user or not check_password_hash(user['password'], password):
         return jsonify({'success': False, 'error': 'Invalid user or password'}), 401
 
-    result = update_balance(user_id, -amount, 'WITHDRAW')
+    result = update_balance(user_id, -amount, 'WITHDRAW', note)
     if result['success']:
         return jsonify({'success': True, 'new_balance': result['new_balance']}), 200
     return jsonify({'success': False, 'error': result['error']}), 400
 
-# Deposit
 @app.route('/member/deposit', methods=['POST'])
 def deposit():
     data = request.json
     user_id = data.get('user_id')
     amount = data.get('amount')
     password = data.get('password')
+    note = data.get('note', '')  # Optional note
 
     try:
         amount = float(amount)
@@ -145,7 +149,7 @@ def deposit():
     if not user or not check_password_hash(user['password'], password):
         return jsonify({'success': False, 'error': 'Invalid user or password'}), 401
 
-    result = update_balance(user_id, amount, 'DEPOSIT')
+    result = update_balance(user_id, amount, 'DEPOSIT', note)
     if result['success']:
         return jsonify({'success': True, 'new_balance': result['new_balance']}), 200
     return jsonify({'success': False, 'error': result['error']}), 400
@@ -158,6 +162,7 @@ def transfer_money():
     recipient_id = data.get('recipient_id')
     amount = data.get('amount')
     password = data.get('password')
+    note = data.get('note', '')  # Optional note
 
     try:
         amount = float(amount)
@@ -180,12 +185,65 @@ def transfer_money():
         if not recipient:
             return jsonify({'success': False, 'error': 'Recipient not found'}), 404
 
+        # Deduct from sender and add to recipient
         cursor.execute('UPDATE users SET balance = balance - ? WHERE id = ?', (amount, user_id))
         cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (amount, recipient_id))
-        cursor.execute('INSERT INTO transactions (user_id, type, amount) VALUES (?, ?, ?)', (user_id, 'TRANSFER', -amount))
-        cursor.execute('INSERT INTO transactions (user_id, type, amount) VALUES (?, ?, ?)', (recipient_id, 'TRANSFER', amount))
+
+        # Record transactions
+        cursor.execute(
+            '''
+            INSERT INTO transactions (user_id, type, amount, note) 
+            VALUES (?, 'TRANSFER_OUT', ?, ?)
+            ''', 
+            (user_id, -amount, note)
+        )
+        cursor.execute(
+            '''
+            INSERT INTO transactions (user_id, type, amount, note) 
+            VALUES (?, 'TRANSFER_IN', ?, ?)
+            ''', 
+            (recipient_id, amount, f'Received from user {user_id}')
+        )
         conn.commit()
         return jsonify({'success': True, 'message': 'Transfer completed successfully'}), 200
+
+# View transactions
+@app.route('/transactions', methods=['GET'])
+def view_transactions():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({'success': False, 'error': 'Missing user_id'}), 400
+
+    try:
+        # Query the transactions table
+        transactions = query_db(
+            '''
+            SELECT id AS transaction_id, type, amount, note, timestamp 
+            FROM transactions 
+            WHERE user_id = ? 
+            ORDER BY timestamp DESC
+            ''', 
+            (user_id,)
+        )
+
+        if not transactions:
+            return jsonify({'success': False, 'error': 'No transaction history found'}), 404
+
+        # Format transactions for response
+        transactions_list = [
+            {
+                'transaction_id': t['transaction_id'],
+                'type': t['type'],
+                'amount': t['amount'],
+                'note': t.get('note', ''),
+                'timestamp': t['timestamp']
+            } for t in transactions
+        ]
+        return jsonify({'success': True, 'data': transactions_list}), 200
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Error retrieving transactions: {str(e)}'}), 500
+
 
 # Modify user
 @app.route('/admin/modify_user', methods=['POST'])
