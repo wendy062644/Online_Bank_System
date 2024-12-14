@@ -12,6 +12,7 @@ Python 3.12
 
 ## database initialize
 python database.py  
+python database_trade_infor.py  
 
 ## compile
 javac -Xlint:deprecation client.java  
