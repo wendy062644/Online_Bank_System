@@ -105,6 +105,12 @@ public class client extends JFrame {
                     JSONObject data = response.getJSONObject("data");
                     String role = data.getString("role");
                     int userId = data.getInt("id");
+                    boolean isFrozen = data.getInt("is_frozen") == 1; // 修正這裡
+
+                    if (isFrozen) {
+                        showError("Your account is locked. Please contact support.");
+                        return;
+                    }
 
                     switch (role) {
                         case "MEMBER":
@@ -209,6 +215,10 @@ class WithdrawDialog extends JDialog {
 
             try {
                 double amount = Double.parseDouble(amountStr);
+                if (amount <= 0) {
+                    JOptionPane.showMessageDialog(this, "Amount must be greater than zero.");
+                    return;
+                }
 
                 URI uri = new URI("http", null, "127.0.0.1", 5000, "/member/withdraw", null, null);
                 URL url = uri.toURL();
@@ -218,6 +228,7 @@ class WithdrawDialog extends JDialog {
                 conn.setDoOutput(true);
 
                 JSONObject json = new JSONObject();
+                json.put("amount", amount);
                 json.put("user_id", userId);
                 json.put("amount", amount);
                 json.put("password", password); // 动态输入密码
@@ -661,35 +672,49 @@ class StaffFrame extends JFrame {
             URL url = uri.toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-    
+
             if (conn.getResponseCode() == 200) {
                 InputStream inputStream = conn.getInputStream();
                 String responseBody = new String(inputStream.readAllBytes()).trim();
                 JSONObject response = new JSONObject(responseBody);
-    
+
                 if (response.getBoolean("success")) {
                     JSONArray transactions = response.getJSONArray("data");
-                    StringBuilder history = new StringBuilder("Transaction History for User ID: " + userId + "\n\n");
+
+                    // 準備表格數據
+                    String[] columnNames = { "Transaction ID", "Amount", "Note", "Transaction Time" };
+                    Object[][] rowData = new Object[transactions.length()][4];
+
                     for (int i = 0; i < transactions.length(); i++) {
                         JSONObject transaction = transactions.getJSONObject(i);
-                        history.append("Transaction ID: ").append(transaction.getInt("id"))
-                                .append("\nAmount: ").append(transaction.getDouble("amount"))
-                                .append("\nNote: ").append(transaction.optString("note", "N/A"))
-                                .append("\nTimestamp: ").append(transaction.getString("transaction_time"))
-                                .append("\n\n");
+                        rowData[i][0] = transaction.getInt("id");
+                        rowData[i][1] = transaction.getDouble("amount");
+                        rowData[i][2] = transaction.optString("note", "N/A");
+                        rowData[i][3] = transaction.getString("transaction_time");
                     }
-    
-                    // Display transaction history in a dialog
-                    JTextArea textArea = new JTextArea(history.toString());
-                    textArea.setEditable(false);
-                    JScrollPane scrollPane = new JScrollPane(textArea);
-                    scrollPane.setPreferredSize(new Dimension(500, 300));
-    
+
+                    // 依 Transaction ID 排序
+                    java.util.Arrays.sort(rowData, (a, b) -> Integer.compare((int) a[0], (int) b[0])); // 降序排列
+
+                    // 創建 JTable
+                    JTable table = new JTable(rowData, columnNames);
+                    table.setEnabled(false); // 禁止編輯
+                    table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+                    table.setRowHeight(25);
+                    table.getTableHeader().setFont(new Font("Arial", Font.BOLD, 14));
+                    table.setFont(new Font("Arial", Font.PLAIN, 12));
+
+                    // 將表格放入 ScrollPane
+                    JScrollPane scrollPane = new JScrollPane(table);
+                    scrollPane.setPreferredSize(new Dimension(600, 400));
+
+                    // 創建對話框顯示交易紀錄
                     JDialog dialog = new JDialog(this, title, true);
                     dialog.add(scrollPane);
                     dialog.pack();
                     dialog.setLocationRelativeTo(this);
                     dialog.setVisible(true);
+
                 } else {
                     JOptionPane.showMessageDialog(this,
                             "Failed to retrieve transaction history: " + response.getString("error"));
@@ -700,9 +725,10 @@ class StaffFrame extends JFrame {
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
         }
-    }    
+    }
 }
 
+// Admin Frame
 // Admin Frame
 class AdminFrame extends JFrame {
     private JTable userTable;
@@ -718,10 +744,12 @@ class AdminFrame extends JFrame {
         JButton refreshButton = new JButton("Refresh");
         JButton createUserButton = new JButton("Create Account");
         JButton unfreezeAccountButton = new JButton("Unfreeze Account");
+        JButton freezeAccountButton = new JButton("Freeze Account"); // 新增凍結帳號按鈕
         JButton viewTransactionButton = new JButton("View Transactions");
         topPanel.add(refreshButton);
         topPanel.add(createUserButton);
         topPanel.add(unfreezeAccountButton);
+        topPanel.add(freezeAccountButton); // 新增到面板
         topPanel.add(viewTransactionButton);
         add(topPanel, BorderLayout.NORTH);
 
@@ -753,6 +781,16 @@ class AdminFrame extends JFrame {
                 unfreezeAccount(userId);
             } else {
                 JOptionPane.showMessageDialog(this, "Please select a user to unfreeze.");
+            }
+        });
+
+        freezeAccountButton.addActionListener(e -> { // 凍結帳號功能
+            int selectedRow = userTable.getSelectedRow();
+            if (selectedRow >= 0) {
+                int userId = (int) userTable.getValueAt(selectedRow, 0);
+                freezeAccount(userId);
+            } else {
+                JOptionPane.showMessageDialog(this, "Please select a user to freeze.");
             }
         });
 
@@ -827,9 +865,39 @@ class AdminFrame extends JFrame {
         }
     }
 
+    private void freezeAccount(int userId) { // 凍結帳號實現
+        try {
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/staff/freeze_account", null, null);
+            URL url = uri.toURL();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+
+            JSONObject json = new JSONObject();
+            json.put("user_id", userId);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(json.toString().getBytes());
+                os.flush();
+            }
+
+            if (conn.getResponseCode() == 200) {
+                JOptionPane.showMessageDialog(this, "Account frozen successfully for User ID: " + userId);
+                fetchUsers();
+            } else {
+                InputStream errorStream = conn.getErrorStream();
+                String errorResponse = new String(errorStream.readAllBytes());
+                JOptionPane.showMessageDialog(this, "Failed to freeze account: " + errorResponse);
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
+    }
+
     private void unfreezeAccount(int userId) {
         try {
-            URI uri = new URI("http", null, "127.0.0.1", 5000, "/admin/unfreeze_account", null, null);
+            URI uri = new URI("http", null, "127.0.0.1", 5000, "/staff/unfreeze_account", null, null);
             URL url = uri.toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
@@ -863,35 +931,49 @@ class AdminFrame extends JFrame {
             URL url = uri.toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-    
+
             if (conn.getResponseCode() == 200) {
                 InputStream inputStream = conn.getInputStream();
                 String responseBody = new String(inputStream.readAllBytes()).trim();
                 JSONObject response = new JSONObject(responseBody);
-    
+
                 if (response.getBoolean("success")) {
                     JSONArray transactions = response.getJSONArray("data");
-                    StringBuilder history = new StringBuilder("Transaction History for User ID: " + userId + "\n\n");
+
+                    // 準備表格數據
+                    String[] columnNames = { "Transaction ID", "Amount", "Note", "Transaction Time" };
+                    Object[][] rowData = new Object[transactions.length()][4];
+
                     for (int i = 0; i < transactions.length(); i++) {
                         JSONObject transaction = transactions.getJSONObject(i);
-                        history.append("Transaction ID: ").append(transaction.getInt("id"))
-                                .append("\nAmount: ").append(transaction.getDouble("amount"))
-                                .append("\nNote: ").append(transaction.optString("note", "N/A"))
-                                .append("\nTimestamp: ").append(transaction.getString("transaction_time"))
-                                .append("\n\n");
+                        rowData[i][0] = transaction.getInt("id");
+                        rowData[i][1] = transaction.getDouble("amount");
+                        rowData[i][2] = transaction.optString("note", "N/A");
+                        rowData[i][3] = transaction.getString("transaction_time");
                     }
-    
-                    // Display transaction history in a dialog
-                    JTextArea textArea = new JTextArea(history.toString());
-                    textArea.setEditable(false);
-                    JScrollPane scrollPane = new JScrollPane(textArea);
-                    scrollPane.setPreferredSize(new Dimension(500, 300));
-    
+
+                    // 依 Transaction ID 排序
+                    java.util.Arrays.sort(rowData, (a, b) -> Integer.compare((int) a[0], (int) b[0])); // 降序排列
+
+                    // 創建 JTable
+                    JTable table = new JTable(rowData, columnNames);
+                    table.setEnabled(false); // 禁止編輯
+                    table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+                    table.setRowHeight(25);
+                    table.getTableHeader().setFont(new Font("Arial", Font.BOLD, 14));
+                    table.setFont(new Font("Arial", Font.PLAIN, 12));
+
+                    // 將表格放入 ScrollPane
+                    JScrollPane scrollPane = new JScrollPane(table);
+                    scrollPane.setPreferredSize(new Dimension(600, 400));
+
+                    // 創建對話框顯示交易紀錄
                     JDialog dialog = new JDialog(this, title, true);
                     dialog.add(scrollPane);
                     dialog.pack();
                     dialog.setLocationRelativeTo(this);
                     dialog.setVisible(true);
+
                 } else {
                     JOptionPane.showMessageDialog(this,
                             "Failed to retrieve transaction history: " + response.getString("error"));
@@ -902,7 +984,7 @@ class AdminFrame extends JFrame {
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
         }
-    }    
+    }
 }
 
 class CreateUserDialog extends JDialog {
